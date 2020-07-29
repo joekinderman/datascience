@@ -1,0 +1,271 @@
+---
+title: "PSTAT 131 Final Project"
+author:
+- Joe Kinderman (4129896)
+- Atziry Madrigal (5900386)
+- Austin Miles (4472031)
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+# Introduction
+The NFL draft is an annual event that gives professional football teams the opportunity to improve their roster by recruiting the college football players whom they consider the most talented. The NFL draft is a large event with great media attention, including people whose fame arose from being able to project the draft. Being able to know whether you will be drafted or not allows a player to make an educated decision on potentially declaring for the draft. Additionally, agents want to target players that are likely to be drafted, as they will receive a percentage of their NFL salary. Whereas, undrafted players may not produce any value for the agent. If an NFL team knows which players are going to be drafted, they have more information to develop a strategy to maximize their value from the draft. Being able to know if an athlete will be drafted is vital information for players, agents, teams, and the media. 
+ 
+In this project, we apply supervised machine learning techniques to predict the probability collegiate quarterbacks are drafted into the NFL. These techniques are based on classification methods such as decision trees, random forest, bootstrap aggregating, K-Nearest Neighbors, and logistic regression models. Although our focus is on the quarterback position, our methods can ultimately be applied to any other positions as well. The goal of our project is to simply develop a model that can determine the attributes that largely define a player's draft status Overall, the importance behind our project lies in the decision-making since it would help narrow down the players that will have the biggest impact in the NFL upon leaving college.
+ 
+# Data
+The data was sourced from sports-reference.com, using a quarterback's passing statistics in their final year of Division 1 college football and cross referencing with their draft status. This data is available to use as per the website's sharing policy. The accumulated data consists of 1036 observations with no missing values. In the data, there are a total of 12 predictors variables: 1 categorical and 11 numerical. Not all quarterbacks play the same level of competition and each conference has a varying degree of difficulty. As a proxy for level of difficulty we created an additional predictor: power5. This is a binary variable stating whether a quarterback played in an esteemed conference which typically face more difficult opponents. Over the timespan of our data conferences have realigned so we have assigned the quarterbacks power5 for playing in these conferences: "Big 12","Pac-10","Pac-12" "Big Ten", "ACC", "SEC", and  "Big East". Additionally, Notre Dame quarterbacks are determined power5 for playing in particularly esteemed and difficult matches regardless of the school's conference status. Finally, we converted interception and touchdown statistics to a percentage by dividing by the number of passing attempts. This better demonstrates a quarterback's talent than the raw statistic. The data also includes the players' names and schools which serve as identifiers rather than predictors. Our targeted response variable is a binary value of draft status.
+
+```{r include=FALSE}
+library(readxl)
+library(ggplot2)
+library(tidyverse)
+library(ROCR)
+library(tree)
+library(randomForest)
+library(class)
+library(glmnet)
+options(digits = 4)
+```
+
+```{r echo=FALSE}
+## read in data
+QBdraft<-read_excel("CFBstats.xlsx")
+
+dim(QBdraft)
+# Data Completeness
+apply(is.na(QBdraft), 2, sum)
+#There is nothing missing
+
+#Table of summary statistics
+QBdraft %>%
+  group_by(Draft) %>%
+  summarise("Yards" = mean(Yds), "Completion %" = mean(Pct), "TD"=mean(TD), "Yards per attempt"=mean(YA), "Passer Rating"=mean(Rate))
+```
+Thw table above shows that there is a significant difference in the statistics between undrafted and drafted quarterbacks. This indicates that it may be possible to differentiate which quarterbacks will be drafted.
+
+```{r echo=FALSE}
+QBdraft %>%
+  group_by(Conf) %>%
+  summarise("Yards" = mean(Yds), "Completion %" = mean(Pct), "TD"=mean(TD), "Yards per attempt"=mean(YA), "% Drafted" =100*mean(Draft))
+```
+This table above shows a significant differnce in percent drafted by conference despite similar passing averages. Showing that the difficulty and prestige of a conference strongly affect a quarterbacks chances of being drafted. 
+```{r echo=FALSE}
+QBdraft$Draft<- as.factor(QBdraft$Draft)
+
+QBdraft <- QBdraft %>%
+    mutate(power5 = factor(ifelse(Conf %in% c("Big 12","Pac-10", "Big Ten", "ACC", "SEC", "Big East", "Pac-12")|School %in% c("Notre Dame"), 1, 0)))%>%
+    mutate(Intpercent = Int/Att)%>%
+    mutate(TDpercent = TD/Att)
+
+  
+
+cor(QBdraft[,c(4:14,17,18)])
+QBdraft<-QBdraft[,-c(1,2,3,5,10,13)]
+```
+Utilizing the correlation function in R, we found that there were issues with multicollinearity. As a result, we excluded Cmp (number of completions), AYA (adjusted yards per attempts), and Rate (passer rating). It is also important to note that although yards has a high correlation rate with attempts and touchdowns, this is due to the nature of the game where more attempts give you the opportunity for more yards, in turn bringing you closer to the endzone. So although these variables are coordinated, they each display a distinct ability representing a quarterback's talent, giving them predictive power. From here on out we simply focus on a total of 10 predictor variables. 
+
+
+```{r echo=FALSE}
+# Exploratory graphics
+Draftnum<-QBdraft[,-c(9,10)]
+pairs(G~.,Draftnum)
+cor(Draftnum[,1:10])
+```
+
+These boxplots and histograms all show that drafted quarterbacks perform better in college.
+```{r echo=FALSE}
+par(mfrow=c(2,1))
+qplot(Draft, Pct, data = QBdraft, geom = "boxplot")
+qplot(Draft, Yds, data = QBdraft, geom = "boxplot")
+
+par(mfrow=c(2,2))
+hist(QBdraft$YA[QBdraft$Draft==1], col=rgb(1,0,0,0.5), ylim=c(0,150),main = "YA by Draft Status", xlab = "Red = Drafted")
+hist(QBdraft$YA[QBdraft$Draft==0], col=rgb(0,0,1,0.5), add=T)
+
+hist(QBdraft$TD[QBdraft$Draft==1], col=rgb(1,0,0,0.5), ylim=c(0,150),main = "TD by Draft Status", xlab = "Red = Drafted")
+hist(QBdraft$TD[QBdraft$Draft==0], col=rgb(0,0,1,0.5), add=T)
+
+hist((QBdraft$Intpercent)[QBdraft$Draft==1], col=rgb(1,0,0,0.5), ylim=c(0,150),main = "Int% by Draft Status", xlab = "Blue = Undrafted")
+hist((QBdraft$Intpercent)[QBdraft$Draft==0], col=rgb(0,0,1,0.5), add=T)
+
+hist((QBdraft$G)[QBdraft$Draft==1], col=rgb(1,0,0,0.5), ylim=c(0,150),main = "Games by Draft Status", xlab = "Blue = Undrafted")
+hist((QBdraft$G)[QBdraft$Draft==0], col=rgb(0,0,1,0.5), add=T)
+
+set.seed(131)
+train <- sample(1:nrow(QBdraft), .75*nrow(QBdraft))
+training <- QBdraft[train, ]
+testing <- QBdraft[-train, ]
+```
+
+# Methods
+In order to answer our research question, we must build an appropriate model that best determines which players should be drafted based on their college statistics. In order to do so, we use cross validation to compare a variation of both non-ensemble and ensemble methods. For non-ensemble methods, we employ decision trees, K-Nearest Neighbors, and logistic regression. Whereas, our ensemble methods consist of random forest, ridge and lasso, and bootstrap aggregating. We carry-out model selection by assessing which method's model results in the lowest test error when applied to our test set which contains 25% of our original data. 
+
+# Model Building
+## Decision Tree
+We first used a decision tree model which is a non-parametric classification method. A decision tree uses recursive partitioning to split the dataset into subsets which label each observation into a targeted class. In our case, the decision tree splits into nodes that distinguishes the regions in which a player is likely to be drafted or not drafted.
+
+```{r echo=FALSE}
+drafttree = tree(Draft~., data = QBdraft, subset=train)
+summary(drafttree)
+tree.err = table(treePred=predict(drafttree, newdata=testing, type="class"),
+truth=testing$Draft)
+plot(drafttree)
+text(drafttree, cex=.5)
+```
+We can see from this summary that the variables used in tree construction are: Yards, Touchdown Percentage, Year, power5, Intercept Percentage, Yards Per Attempt, Intercepts, and Games Played. Additionally, there is a misclassification error rate of 0.143. 
+
+More importantly, we used cross validation as a way to find the optimal size for the tree as a way to prevent overfitting. Using 10-fold cross validation, we consider whether pruning the tree might lead to a lower test error. 
+
+```{r}
+# 10-fold CV for selecting best tree size
+tree.cv = cv.tree(drafttree, FUN=prune.misclass, K=10)
+# Best size
+best.cv = min(tree.cv$size[tree.cv$dev==min(tree.cv$dev)])
+best.cv
+
+# Prune the tree to the optimal size
+tree.prune = prune.misclass(drafttree, best=best.cv)
+summary(tree.prune)
+# Test error for tree.prune
+treePred=predict(tree.prune, newdata=testing, type="class")
+table(Pred=treePred,truth=testing$Draft)
+prune.err <- 1 - mean(treePred==testing$Draft)
+prune.err
+plot(tree.prune)
+text(tree.prune, cex=.5)
+```
+The pruned tree reduced the number of variables for the model to include: Yards, Yards Per Attempt, Power5, and Attempts. We can see that there is a change on the test error since it is `r prune.err`.  
+
+## Bagging
+
+Since decision trees tend to have a higher variance, we decided to use bagging as an alternative tree-based method to improve accuracy over the prediction. For bagging, all 11 predictors are considered for each split of the tree. 
+```{r}
+bagdraft = randomForest(Draft~., data=training, mtry=11, importance=TRUE)
+testpred = predict(bagdraft, newdata = testing)
+testerr<-table(testpred, testing$Draft)
+bag.err <- 1 - sum(diag(testerr)/sum(testerr))
+bag.err
+importance(bagdraft)
+```
+The test set error rate associated with the bagged classification tree is `r bag.err`, lower than that obtained using an optimally-pruned single tree. 
+
+## Random Forrest
+Growing a random forest proceeds in exactly the same way as bagging, except that a smaller number of predictors are considered for each split. Random forest for classification uses the square root of number of predictors, hence for our model only 3 predictors to be considered for each split. It is important to note that a smaller number of predictors helps when predictors are highly correlated. 
+
+```{r echo=FALSE}
+rfdraft = randomForest(Draft~., data=training, mtry=3, importance=TRUE)
+testpred = predict(rfdraft, newdata = testing)
+testerr<-table(testpred, testing$Draft)
+forrest.err <- 1 - sum(diag(testerr)/sum(testerr))
+forrest.err
+importance(rfdraft)
+```
+The resulted test error was `r forrest.err`, which is a slight improvement form the previous methods used. 
+
+## KNN
+We then applied K-Nearest Neighbors (KNN) as an alternative non-parametric, hard classification method. For each observation in the test set, KNN will assign it a label in accordance with the majority class of the “k nearest neighbor” of the training data. 
+```{r echo=FALSE}
+
+XTrain <- training[,-c(9,10)]
+ YTrain <- training$Draft
+ XTest <- testing[,-c(9,10)]
+ YTest = testing$Draft
+ 
+ XTrain <- scale(XTrain,center = TRUE, scale = TRUE)
+ 
+ meanvec <- attr(XTrain,'scaled:center')
+ sdvec <- attr(XTrain,'scaled:scale')
+ XTest <- scale(XTest,center = meanvec, scale = sdvec)
+ 
+ testerror=0
+ trainerror=0
+ 
+ for(i in 1:30){
+ pred.YTest = knn(train=XTrain, test=XTest, cl=YTrain, k=i)
+ conf.train = table(predicted=pred.YTest, observed=YTest)
+ testerror[i]=1 - sum(diag(conf.train)/sum(conf.train))
+ pred.YTrain = knn(train=XTrain, test=XTrain, cl=YTrain, k=i)
+ conf.train = table(predicted=pred.YTrain, observed=YTrain)
+ trainerror[i]=1 - sum(diag(conf.train)/sum(conf.train))
+ }
+
+ trainerror
+ testerror
+```
+Within our project, we tested a different k’s from 1 to 30 and determined that k = 29 produced the smallest test error of 0.1969. We can see that this model performed the same as the random forest model.
+
+
+## Logistic Regression
+```{r echo=FALSE}
+# Fit the model
+full.model <- glm(Draft ~., data = training, family = binomial)
+# Make predictions
+probabilities <- full.model %>% predict(training, type = "response")
+predicted.classes <- ifelse(probabilities > .5, 1, 0)
+# Model accuracy
+log.err <- 1-mean(predicted.classes == training$Draft)
+log.err
+table(pred=predicted.classes, true=training$Draft)
+```
+Using logistic regression, we get an error rate of `r log.err`. There were 559 observations where the model correctly predicted the player would not get drafted and 77 observations where the model correctly predicted the player would get drafted. However, there were  misclassified observations, 95 players who got drafted but the model predicted they didn’t and 46 players who didn’t get drafted but the model predicted they would.
+
+## Ridge
+```{r echo=FALSE}
+x <- model.matrix(Draft ~ ., data = training)[,-1]
+y <- training$Draft
+# Find the best lambda using cross-validation
+cv.ridge <- cv.glmnet(x, y, family = "binomial", alpha = 0, lambda = NULL)
+plot(cv.ridge)
+cv.ridge$lambda.min
+
+# Fit the final model on the training data
+ridge <- glmnet(x, y, family = "binomial", alpha = 0, lambda = cv.ridge$lambda.min)
+
+# Display regression coefficients
+coef(ridge)
+
+# Make predictions on the test data
+x.test <- model.matrix(Draft ~., testing)[,-1]
+probabilities <- ridge %>% predict(newx = x.test)
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+
+# Model accuracy
+ridge.err <- 1-mean(predicted.classes == testing$Draft)
+ridge.err
+table(predicted.classes, testing$Draft)
+
+```
+The plot displays the cross-validation error depending on the log of lambda. The dashed vertical line indicates that the log of the optimal value of lambda is around -2, which minimizes the prediction error. The exact value is approximately `r ridge.err`. Using this value, we can find the regression coefficients. We assess the model accuracy and we get approximately 78%.
+
+## LASSO
+```{r echo=FALSE}
+
+cv.lasso <- cv.glmnet(x, y, family = "binomial", alpha = 1, lambda = NULL)
+plot(cv.lasso)
+
+cv.lasso$lambda.min
+lasso <- glmnet(x, y, family = "binomial", alpha = 1, lambda = cv.ridge$lambda.min)
+coef(lasso)
+
+# Make predictions on the test data
+x.test <- model.matrix(Draft ~., testing)[,-1]
+probabilities <- lasso %>% predict(newx = x.test)
+predicted.classes <- ifelse(probabilities > 0.01, 1, 0)
+# Model accuracy
+lasso.err <- 1-mean(predicted.classes == testing$Draft)
+lasso.err
+table(pred=predicted.classes,true= testing$Draft)
+```
+The plot displays cross-validation error according to the log of lambda. The left vertical line indicates that the optimal value of log lambda is approximately -6.3 which minimizes the prediction error. The exact value is approximately `r lasso.err`. Using this value, we can find the regression coefficients. We assess the model accuracy and we get approximately 79%.
+
+# Conclusions
+Our final model will be the K nearest neighbors model with k=18 since it has the lowest test error at approximately 0.139. There are limitations of this study because NFL Quarterback recruiters look at variables not included in this study. A player's height, weight, speed, intelligence, throwing motion, etc. are all considered in real life but difficult to factor in our study. In the future, we could gather more predictors on the players we study to see if these factors increase the accuracy of the model. With an accurate model, we could even predict which quarterbacks will get drafted in the future given their college data.
+
+
+# References
+https://www.sports-reference.com/cfb/years/2017-passing.html
+Data can be found on this website and is organized by college year.
+
