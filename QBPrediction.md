@@ -102,7 +102,7 @@ Utilizing the correlation function in R, we found that there were issues with mu
     ## Intpercent     1.0000   -0.3216
     ## TDpercent     -0.3216    1.0000
 
-These boxplots and histograms all show that drafted quarterbacks perform better in college. ![](unnamed-chunk-6-1.png)![](unnamed-chunk-6-2.png)![](unnamed-chunk-6-3.png)
+Unsuprisingly, the following plots show that drafted quarterbacks perform better in college than their undrafted counterparts. ![](unnamed-chunk-6-1.png)![](unnamed-chunk-6-2.png)![](unnamed-chunk-6-3.png)
 
 Methods
 =======
