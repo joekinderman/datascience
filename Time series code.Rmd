@@ -1,0 +1,304 @@
+---
+title: "Joe Kinderman- Time Series Analysis"
+author: "Joe Kinderman"
+date: "June 9, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+```
+
+
+```{r}
+#devtools::install_github("FinYang/tsdl")
+library(MASS)
+library(tsdl)
+#install.packages('forecast', dependencies = TRUE)
+library(forecast)
+#install.packages("tseries")
+library(tseries)
+
+cat(attr(tsdl[[484]], "subject"), attr(tsdl[[484]], "description"), length(tsdl[[484]]), "\n")
+BAR <- ts(tsdl[[484]])
+BAR.ts<-BAR[1:108] #cut last 10 digits for testing
+par(mfrow=c(2,2))
+ts.plot(BAR.ts,main  = "Raw data")
+mean(BAR.ts)
+var(BAR.ts)
+acf(BAR.ts, lag.max = 50)
+pacf(BAR.ts, lag.max=50) #possible ar(1)
+monthly <- ts(BAR.ts,frequency = 12, start = c(1966,1)) #Monthly data points
+seasonplot(monthly, s=12, col = rainbow(12),year.labels = TRUE, main = "Annual Seasonality Plot") #no apparent seasonality
+adf.test(BAR.ts) #p-value > .05 therefore not stationary
+
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+bcTransform <- boxcox(BAR.ts ~ as.numeric(1:length(BAR.ts)))
+lambda1 = bcTransform$x[which(bcTransform$y == max(bcTransform$y))]
+lambda1
+Transformed.ts <-((BAR.ts^lambda1)) # Box-cox
+ts.plot(Transformed.ts)
+acf(Transformed.ts)
+pacf(Transformed.ts)
+var(Transformed.ts)
+
+BAR.diff12 <- diff(Transformed.ts,12)
+par(mfrow=c(2,2))
+ts.plot(BAR.diff12,main = "Differenced Data at lag = 12",ylab=expression(paste(nabla,y)))
+var(BAR.diff12)
+acf(BAR.diff12, lag.max=80)
+pacf(BAR.diff12, lax.max=80)
+
+BAR.diff12.12 <- diff(BAR.diff12,12)
+par(mfrow=c(2,2))
+ts.plot(BAR.diff12.12,main = "Differenced Data at lag = 12 twice",ylab=expression(paste(nabla,y)))
+var(BAR.diff12.12)
+acf(BAR.diff12.12, lag.max=80)
+pacf(BAR.diff12.12, lax.max=80)
+```
+
+
+```{R}
+par(mfrow=c(2,2))
+BAR.diff12.1 <- diff(BAR.diff12,1)
+ts.plot(BAR.diff12.1,main = "Differenced Data at lag =12 then lag = 1",ylab=expression(paste(nabla,y)))
+var(BAR.diff12.1)
+acf(BAR.diff12.1)
+pacf(BAR.diff12.1)
+
+par(mfrow=c(2,2))
+BAR.diff12.1.1 <- diff(BAR.diff12.1,1)
+ts.plot(BAR.diff12.1.1,main = "Differenced Data at lag = 12 then lag =1 twice",ylab=expression(paste(nabla,y)))
+var(BAR.diff12.1.1) 
+acf(BAR.diff12.1.1)
+pacf(BAR.diff12.1.1)
+
+par(mfrow=c(2,2))
+BAR.diff1 <- diff(Transformed.ts,1)
+ts.plot(BAR.diff1,main = "Differenced Data at lag = 1",ylab=expression(paste(nabla,y)))
+var(BAR.diff1) #best var
+acf(BAR.diff1) #Possible MA(8)
+pacf(BAR.diff1) #Possible AR(10)
+
+par(mfrow=c(2,2))
+Transformed.ts.diff3.3 <- diff(BAR.diff1,1)
+ts.plot(Transformed.ts.diff3.3,main = "Differenced Data at lag = 1 twice",ylab=expression(paste(nabla,y)))
+var(Transformed.ts.diff3.3) 
+acf(Transformed.ts.diff3.3) 
+pacf(Transformed.ts.diff3.3)
+#worse var
+```
+
+Check stationary of data differenced at lag=1
+```{r}
+adf.test(BAR.diff1)
+#data is stationary according to dickey fuller test
+```
+
+
+```{r}
+
+innovations.algorithm <- function(n.max,acvs)
+  {
+    thetas <- matrix(rep(0,n.max^2),nrow=n.max)
+    vs <- rep(0,n.max+1)
+    vs[1] <- acvs[1]
+    for(n in 1:n.max)
+      {
+        thetas[n,n] <- acvs[n+1]/vs[1]
+        if(n>1)
+          {
+            for(k in 1:(n-1))
+              {
+                inner.sum <- acvs[n-k+1]
+                for(j in 0:(k-1))
+                  {
+                    inner.sum <- inner.sum - thetas[k,k-j]*thetas[n,n-j]*vs[j+1]
+                  }
+                thetas[n,n-k] <- inner.sum/vs[k+1]
+              }
+          }
+        vs[n+1] <- acvs[1]
+        for(j in 0:(n-1))
+          {
+            vs[n+1] <- vs[n+1] - thetas[n,n-j]^2*vs[j+1]
+          }
+      }
+    structure(list(thetas=thetas,vs=vs))
+  }
+
+# Variance
+
+get.sigma.2.n.hs <- function(n,h.max,ts.var,ia.stuff)
+  {
+    thetas <- ia.stuff$thetas
+    vs <- ia.stuff$vs
+    sigma.2.n.hs <- rep(ts.var,h.max)
+    for(h in 1:h.max)
+      {
+        sigma.2.n.hs[h] <- sigma.2.n.hs[h] - sum((thetas[n+h-1,(n+h-1):h])^2*vs[1:n])
+      }
+    sigma.2.n.hs
+  }
+
+acvf = acf(BAR.diff1, plot=FALSE, lag.max = length(BAR.diff1))$acf[,1,1] * var(BAR.diff1) 
+m = length(acvf)
+
+BAR.ia = innovations.algorithm(m+1, acvf)
+BAR.ia$thetas[8,1:8] #coef for ma(8)
+```
+
+```{r}
+AR.10.yw<-ar(BAR.diff1, aic=TRUE, order.max=NULL, method=("yw"))
+AR.10.yw
+AR.10.mle<-ar(BAR.diff1,order.max=NULL, method=("mle"))
+AR.10.mle
+#mle and yw suggests ar(10)
+```
+
+
+```{r}
+library(qpcR)
+# Calculate AICc for ARMA models with p and q running from 0 to 5
+aiccs <- matrix(NA, nr = 6, nc = 6)
+dimnames(aiccs) = list(p=0:5, q=0:5)
+for(p in 0:5)
+{
+for(q in 0:5)
+{
+aiccs[p+1,q+1] = AICc(arima(BAR.diff1, order = c(p,0,q), method="ML"))
+}
+}
+aiccs
+min(aiccs)
+
+#arma(1,1)
+
+```
+
+```{r}
+#install.packages('forecast', dependencies = TRUE)
+library(forecast)
+
+ARIMA.10.1.0<-Arima(Transformed.ts,order = c(10,1,0), method = "ML")
+ARIMA.10.1.0
+
+ARIMA.0.1.8<-Arima(Transformed.ts,order = c(0,1,8), method = "ML")
+ARIMA.0.1.8
+
+ARIMA.1.1.1<-Arima(Transformed.ts,order = c(1,1,1), method = "ML")
+ARIMA.1.1.1
+
+auto.arima(Transformed.ts, stepwise =F, approximation = F, lambda=lambda1, ic="aicc")
+#recommends ARIMA(0,1,2) 
+
+ARIMA.0.1.2<-Arima(Transformed.ts, order=c(0,1,2), method="ML")
+ARIMA.0.1.2 #lowest AIC, AICc, and BIC
+```
+Diagnostics
+
+ARIMA(10,1,0) 
+
+```{r}
+#square root of 108 approx = 10
+ts.plot(residuals(ARIMA.10.1.0))
+Box.test(residuals(ARIMA.10.1.0), type = "Ljung-Box", lag = 10, fitdf = 10) #fail
+Box.test(residuals(ARIMA.10.1.0), type = "Box-Pierce", lag = 10, fitdf = 10) #fail
+Box.test(residuals(ARIMA.10.1.0)^2, type = "Ljung", lag = 10, fitdf = 0) #pass
+shapiro.test(residuals(ARIMA.10.1.0)) #pass
+
+par(mfrow=c(2,2))
+acf(residuals(ARIMA.10.1.0),main = "Autocorrelation", lag.max = 40)
+pacf(residuals(ARIMA.10.1.0),main = "Partial Autocorrelation", lag.max = 40)
+hist(residuals(ARIMA.10.1.0),main = "Histogram") # q-q plot
+qqnorm(residuals(ARIMA.10.1.0)) 
+qqline(residuals(ARIMA.10.1.0),col ="blue")
+```
+
+ARIMA(0,1,8)
+
+```{r}
+ts.plot(residuals(ARIMA.0.1.8))
+Box.test(residuals(ARIMA.0.1.8), type = "Ljung-Box", lag = 10, fitdf = 8) #pass
+Box.test(residuals(ARIMA.0.1.8), type = "Box-Pierce", lag = 10, fitdf = 8) #pass
+Box.test(residuals(ARIMA.0.1.8)^2, type = "Ljung", lag = 10, fitdf = 0) #pass
+shapiro.test(residuals(ARIMA.0.1.8)) #pass
+
+par(mfrow=c(2,2))
+acf(residuals(ARIMA.0.1.8),main = "Autocorrelation", lag.max = 40)
+pacf(residuals(ARIMA.0.1.8),main = "Partial Autocorrelation", lag.max = 40)
+hist(residuals(ARIMA.0.1.8),main = "Histogram") # q-q plot
+qqnorm(residuals(ARIMA.0.1.8)) 
+qqline(residuals(ARIMA.0.1.8),col ="blue")
+```
+
+ARIMA(1,1,1)
+```{r}
+ts.plot(residuals(ARIMA.1.1.1))
+Box.test(residuals(ARIMA.1.1.1), type = "Ljung-Box", lag = 10, fitdf = 2) #pass
+Box.test(residuals(ARIMA.1.1.1), type = "Box-Pierce", lag = 10, fitdf = 2) #pass
+Box.test(residuals(ARIMA.1.1.1)^2, type = "Ljung", lag = 10, fitdf = 0) #pass
+shapiro.test(residuals(ARIMA.1.1.1)) #pass
+
+par(mfrow=c(2,2))
+acf(residuals(ARIMA.1.1.1),main = "Autocorrelation", lag.max = 108)
+pacf(residuals(ARIMA.1.1.1),main = "Partial Autocorrelation", lag.max = 108)
+hist(residuals(ARIMA.1.1.1),main = "Histogram") # q-q plot
+qqnorm(residuals(ARIMA.1.1.1)) 
+qqline(residuals(ARIMA.1.1.1),col ="blue")
+```
+
+ARIMA(0,1,2)
+
+```{r}
+ts.plot(residuals(ARIMA.0.1.2))
+Box.test(residuals(ARIMA.0.1.2), type = "Ljung-Box", lag = 10, fitdf = 2) #pass
+Box.test(residuals(ARIMA.0.1.2), type = "Box-Pierce", lag = 10, fitdf = 2) #pass
+Box.test(residuals(ARIMA.0.1.2)^2, type = "Ljung", lag = 10, fitdf = 0) #pass
+shapiro.test(residuals(ARIMA.0.1.2)) #pass
+
+par(mfrow=c(2,2))
+acf(residuals(ARIMA.0.1.2),main = "Autocorrelation", lag.max = 108)
+pacf(residuals(ARIMA.0.1.2),main = "Partial Autocorrelation", lag.max = 108)
+hist(residuals(ARIMA.0.1.2),main = "Histogram") # q-q plot
+qqnorm(residuals(ARIMA.0.1.2)) 
+qqline(residuals(ARIMA.0.1.2),col ="blue")
+
+polyroot(c(1, -0.2910, -0.1752)) #invertible 
+```
+
+Forecasting for Transformed Data
+```{r}
+pred=predict(ARIMA.0.1.2, n.ahead=10)
+pred$pred
+U.tr= pred$pred + 1.96*pred$se # upper bound for the C.I. for transformed data
+L.tr= pred$pred - 1.96*pred$se # lower bound
+ts.plot(BAR^lambda1, main="Transformed Data Forecast",ylim=c(min(Transformed.ts),max(U.tr)),xlim=c(0,118)) + points(109:118,pred$pred, col = "red")
+lines(U.tr, col="blue", lty="dashed")
+lines(L.tr, col="blue", lty="dashed")
+
+ts.plot(BAR^lambda1, main="Zoomed in Transformed Data Forecast", ylim=c(min(L.tr),max(U.tr)),xlim=c(107,118)) + points(109:118,pred$pred, col = "red")
+lines(U.tr, col="blue", lty="dashed")
+lines(L.tr, col="blue", lty="dashed")
+
+```
+
+Forecasting for Original Data
+```{r}
+origpred = pred$pred^(1/lambda1)
+U=U.tr^(1/lambda1)
+L=L.tr^(1/lambda1)
+ts.plot(BAR, main="Original Data Forecast",ylim=c(0,max(U)),xlim=c(0,118)) + points(109:118,origpred, col = "red")
+lines(U, col="blue", lty="dashed")
+lines(L, col="blue", lty="dashed")
+
+ts.plot(BAR, main="Zoomed In Original Data Forecast",ylim=c(0,max(U)),xlim=c(107,118)) + points(109:118,origpred, col = "red")
+lines(U, col="blue", lty="dashed")
+lines(L, col="blue", lty="dashed")
+```
+
+
