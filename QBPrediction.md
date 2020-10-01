@@ -266,7 +266,7 @@ Using logistic regression, we get an error rate of 0.1622. There were 559 observ
 Ridge
 -----
 
-![](unnamed-chunk-13-1.png)
+![](images/unnamed-chunk-13-1.png)
 
     ## [1] 0.01961
 
