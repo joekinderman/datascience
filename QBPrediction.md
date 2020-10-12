@@ -77,7 +77,7 @@ This table above shows a significant differnce in percent drafted by conference 
 
 Utilizing the correlation function in R, we found that there were issues with multicollinearity. As a result, we excluded Cmp (number of completions), AYA (adjusted yards per attempts), and Rate (passer rating). It is also important to note that although yards has a high correlation rate with attempts and touchdowns, this is due to the nature of the game where more attempts give you the opportunity for more yards, in turn bringing you closer to the endzone. So although these variables are coordinated, they each display a distinct ability representing a quarterback's talent, giving them predictive power. From here on out we simply focus on a total of 10 predictor variables.
 
-![](unnamed-chunk-5-1.png)
+![](images/unnamed-chunk-5-1.png)
 
     ##                  G     Att     Pct     Yds      YA      TD     Int    Year
     ## G           1.0000  0.5311  0.3553  0.5896  0.3868  0.5345  0.1193  0.2880
@@ -102,7 +102,7 @@ Utilizing the correlation function in R, we found that there were issues with mu
     ## Intpercent     1.0000   -0.3216
     ## TDpercent     -0.3216    1.0000
 
-Unsuprisingly, the following plots show that drafted quarterbacks perform better in college than their undrafted counterparts. ![](unnamed-chunk-6-1.png)![](unnamed-chunk-6-2.png)![](unnamed-chunk-6-3.png)
+Unsuprisingly, the following plots show that drafted quarterbacks perform better in college than their undrafted counterparts. ![](images/unnamed-chunk-6-1.png)![](images/unnamed-chunk-6-2.png)![](images/unnamed-chunk-6-3.png)
 
 Methods
 =======
@@ -126,7 +126,7 @@ We first used a decision tree model which is a non-parametric classification met
     ## Residual mean deviance:  0.71 = 543 / 765 
     ## Misclassification error rate: 0.152 = 118 / 777
 
-![](unnamed-chunk-7-1.png) We can see from this summary that the variables used in tree construction are: Yards, Touchdown Percentage, Year, power5, Intercept Percentage, Yards Per Attempt, Intercepts, and Games Played. Additionally, there is a misclassification error rate of 0.143.
+![](images/unnamed-chunk-7-1.png) We can see from this summary that the variables used in tree construction are: Yards, Touchdown Percentage, Year, power5, Intercept Percentage, Yards Per Attempt, Intercepts, and Games Played. Additionally, there is a misclassification error rate of 0.143.
 
 More importantly, we used cross validation as a way to find the optimal size for the tree as a way to prevent overfitting. Using 10-fold cross validation, we consider whether pruning the tree might lead to a lower test error.
 
@@ -178,7 +178,7 @@ plot(tree.prune)
 text(tree.prune, cex=.5)
 ```
 
-![](unnamed-chunk-8-1.png) The pruned tree reduced the number of variables for the model to include: Yards, Yards Per Attempt, Power5, and Attempts. We can see that there is a change on the test error since it is 0.1931.
+![](images/unnamed-chunk-8-1.png) The pruned tree reduced the number of variables for the model to include: Yards, Yards Per Attempt, Power5, and Attempts. We can see that there is a change on the test error since it is 0.1931.
 
 Bagging
 -------
